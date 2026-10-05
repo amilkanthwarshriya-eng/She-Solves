@@ -20,7 +20,7 @@ class DebertaClassifier:
         self.max_len = max_len
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.tokenizer = AutoTokenizer.from_pretrained(model_dir)
-        self.model = AutoModelForSequenceClassification.from_pretrained(model_dir).to(self.device).eval()
+        self.model = AutoModelForSequenceClassification.from_pretrained(model_dir).float().to(self.device).eval()
         with open(os.path.join(model_dir, "labels.json"), encoding="utf-8") as f:
             self.labels: List[str] = json.load(f)
 

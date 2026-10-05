@@ -56,7 +56,11 @@ def main():
     tok = AutoTokenizer.from_pretrained(args.model_name)
     model = AutoModelForSequenceClassification.from_pretrained(
         args.model_name, num_labels=len(LABELS),
-        id2label=dict(enumerate(LABELS)), label2id={l: i for i, l in enumerate(LABELS)}).to(device)
+        id2label=dict(enumerate(LABELS)), label2id={l: i for i, l in enumerate(LABELS)})
+    # Newer transformers versions can load this checkpoint in float16. Training in fp16 gives NaN,
+    # so force float32 explicitly.
+    model = model.float().to(device)
+    print('model dtype:', next(model.parameters()).dtype)
 
     train_x, train_y = read("train")
     val_x, val_y = read("val")
@@ -79,6 +83,8 @@ def main():
             batch = encode([train_x[j] for j in idx]).to(device)
             labels = torch.tensor([train_y[j] for j in idx], device=device)
             loss = model(**batch, labels=labels).loss
+            if not torch.isfinite(loss):
+                raise RuntimeError(f'Loss is {loss.item()} at epoch {epoch}. Training stopped (see README: NaN loss).')
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             opt.step(); sched.step(); opt.zero_grad()
