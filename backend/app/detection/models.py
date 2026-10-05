@@ -35,6 +35,9 @@ class Finding:
     recommendation: str
     explanation: str
     pattern: str                 # model-level label, e.g. "CONFIRM_SHAMING"
+    rule_confidence: Optional[float] = None    # confidence from the rule baseline (None if rules missed)
+    model_confidence: Optional[float] = None   # DeBERTa probability for this pattern (None if no model)
+    detection_source: str = "rules"            # rules | rules+model | rules (model disagrees) | model_only
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -47,4 +50,7 @@ class Finding:
             "recommendation": self.recommendation,
             "explanation": self.explanation,
             "pattern": self.pattern,
+            "rule_confidence": self.rule_confidence,
+            "model_confidence": self.model_confidence,
+            "detection_source": self.detection_source,
         }

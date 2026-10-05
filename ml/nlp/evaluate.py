@@ -2,7 +2,9 @@
 
     python ml/nlp/evaluate.py                       # rule baseline (Phase 1), test split
     python ml/nlp/evaluate.py --split all           # rule baseline on every example
-    python ml/nlp/evaluate.py --model ml/models/nlp/deberta     # DeBERTa (after training)
+    python ml/nlp/evaluate.py --model ml/models/nlp/deberta     # DeBERTa alone
+    python ml/nlp/evaluate.py --model ml/models/nlp/deberta --fusion   # rules + DeBERTa fused
+    python ml/nlp/evaluate.py --compare                          # table of the saved results
 """
 import argparse
 import csv
@@ -54,15 +56,48 @@ def predict_model(texts: List[str], model_dir: str) -> List[str]:
     return [r["pattern"] for r in clf.predict(texts)]
 
 
+def predict_fused(texts: List[str], model_dir: str) -> List[str]:
+    sys.path.insert(0, HERE)
+    from inference import DebertaClassifier
+    from app.nlp.inference import classify_text
+    results = DebertaClassifier(model_dir).predict(texts)
+    return [classify_text(t, model_result=r)["pattern"] for t, r in zip(texts, results)]
+
+
+def compare(split: str) -> None:
+    print(f"\n== comparison on '{split}' split ==")
+    print(f"{'system':<10}{'accuracy':>10}{'macro-F1':>10}{'samples':>9}")
+    for name in ("rules", "deberta", "fused"):
+        path = os.path.join(HERE, "results", f"{name}_{split}.json")
+        if not os.path.exists(path):
+            print(f"{name:<10}  (not run yet)")
+            continue
+        with open(path, encoding="utf-8") as f:
+            m = json.load(f)
+        print(f"{name:<10}{m['accuracy']:>10.3f}{m['macro_f1']:>10.3f}{m['samples']:>9}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--split", default="test", choices=["train", "val", "test", "all"])
     ap.add_argument("--model", default=None, help="folder of a fine-tuned DeBERTa model")
+    ap.add_argument("--fusion", action="store_true", help="evaluate rules + DeBERTa fused (needs --model)")
+    ap.add_argument("--compare", action="store_true", help="print a table of saved results and exit")
     args = ap.parse_args()
+    if args.compare:
+        compare(args.split)
+        return
+    if args.fusion and not args.model:
+        ap.error("--fusion needs --model")
 
     texts, y_true = load(args.split)
-    name = "deberta" if args.model else "rules"
-    y_pred = predict_model(texts, args.model) if args.model else predict_rules(texts)
+    name = "fused" if args.fusion else ("deberta" if args.model else "rules")
+    if args.fusion:
+        y_pred = predict_fused(texts, args.model)
+    elif args.model:
+        y_pred = predict_model(texts, args.model)
+    else:
+        y_pred = predict_rules(texts)
     m = metrics(y_true, y_pred)
 
     print(f"\n== {name} on '{args.split}' split ({len(texts)} samples) ==")

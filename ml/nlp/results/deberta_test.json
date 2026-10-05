@@ -1,0 +1,69 @@
+{
+  "accuracy": 0.857,
+  "macro_f1": 0.857,
+  "per_class": {
+    "FALSE_URGENCY": {
+      "precision": 0.786,
+      "recall": 1.0,
+      "f1": 0.88,
+      "support": 11
+    },
+    "CONFIRM_SHAMING": {
+      "precision": 0.833,
+      "recall": 1.0,
+      "f1": 0.909,
+      "support": 10
+    },
+    "NONE": {
+      "precision": 1.0,
+      "recall": 0.643,
+      "f1": 0.783,
+      "support": 14
+    }
+  },
+  "confusion": {
+    "FALSE_URGENCY": {
+      "FALSE_URGENCY": 11,
+      "CONFIRM_SHAMING": 0,
+      "NONE": 0
+    },
+    "CONFIRM_SHAMING": {
+      "FALSE_URGENCY": 0,
+      "CONFIRM_SHAMING": 10,
+      "NONE": 0
+    },
+    "NONE": {
+      "FALSE_URGENCY": 3,
+      "CONFIRM_SHAMING": 2,
+      "NONE": 9
+    }
+  },
+  "samples": 35,
+  "mistakes": [
+    [
+      "No, I don't want to protect this file with a password.",
+      "NONE",
+      "CONFIRM_SHAMING"
+    ],
+    [
+      "Only prepaid orders are eligible for this coupon",
+      "NONE",
+      "FALSE_URGENCY"
+    ],
+    [
+      "Cash on delivery is not available for this item",
+      "NONE",
+      "FALSE_URGENCY"
+    ],
+    [
+      "No thanks.",
+      "NONE",
+      "CONFIRM_SHAMING"
+    ],
+    [
+      "Sale price valid for new customers",
+      "NONE",
+      "FALSE_URGENCY"
+    ]
+  ]
+}

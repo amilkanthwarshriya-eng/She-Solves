@@ -1,7 +1,7 @@
 # DarkPatternGuard — Member 2 (M2): NLP + Detection Intelligence
 
-**Status: Phase 1 (rule baseline) complete and aligned to the official plan.
-Phase 2 (DeBERTa-v3-base) and Phase 3 (rule + model confidence fusion) are NOT built yet.**
+**Status: Phase 1 (rules), Phase 2 (DeBERTa-v3-base, trained on Colab) and Phase 3 (rule + model confidence fusion) are built.
+If no trained model is present the engine automatically falls back to rules only.**
 
 ## What M2 owns (plan §17)
 `backend/app/detection/` · `backend/app/nlp/` · `ml/nlp/`
@@ -15,8 +15,8 @@ Output: *text / evidence -> pattern + confidence*, wrapped into the shared findi
 | DP03 Confirm Shaming | Done (rules) |
 | Shared JSON contract (§7), M2's fields | Done (`models.py`, `evidence_engine.py`) |
 | `{pattern, confidence}` model-level output | Done for rules (`nlp/inference.py`) |
-| DeBERTa-v3-base classifier | **Not trained yet.** Backend wrapper `nlp/classifier.py` not written |
-| Rule + DeBERTa confidence fusion | **Missing** |
+| DeBERTa-v3-base classifier | Trained (test acc 0.857 / macro-F1 0.857 on 35 samples). Backend wrapper: `nlp/classifier.py` |
+| Rule + DeBERTa confidence fusion | Done (`detection/fusion.py`), unit-tested with a fake model. Real-model scores: run `evaluate.py --fusion` |
 | Labeled dataset (100–200 samples) | Seed version done (180 samples, `ml/nlp/make_dataset.py`). Add real examples |
 | Training + evaluation scripts | Written (`ml/nlp/train.py`, `evaluate.py`, `inference.py`). **Training not run yet**, needs Colab/GPU |
 | Rule baseline score (test split) | accuracy 0.82, macro-F1 0.79 (rules miss many shaming phrasings) |
@@ -34,7 +34,7 @@ backend/app/
 tests/backend/   demo_m2.py
 ```
 ML side: `ml/nlp/{make_dataset,train,evaluate,inference}.py` + `ml/nlp/README.md` (Colab steps).
-Not yet created: `backend/app/nlp/classifier.py` and the confidence fusion.
+Backend: `nlp/classifier.py` (model loader + fallback), `detection/fusion.py` (confidence fusion).
 
 ## Run (Windows PowerShell, from the project root)
 ```powershell
@@ -69,3 +69,21 @@ Status becomes `VERIFIED` only when text + selector + screenshot are all present
 ## Known limitations
 English only; fixed phrase lists; flags urgency *language*, not whether scarcity is fake; confidence is a
 rule-based heuristic (not a probability); opt-out wording like "I don't want insurance" may be flagged.
+
+## Using the trained model in the backend
+1. Put the trained folder at `ml/models/nlp/deberta/` (or set `DPG_NLP_MODEL_DIR`). Do not commit it to git (large file); share it via Drive.
+2. `pip install torch transformers sentencepiece` on the backend machine.
+3. `analyze_text()` then fuses rule + model confidence automatically. Each finding also carries
+   `rule_confidence`, `model_confidence` and `detection_source` (`rules`, `rules+model`, `rules (model disagrees)`, `model_only`).
+4. Set `DPG_DISABLE_MODEL=1` to force rules only. If torch or the model is missing, rules-only is used silently.
+
+Fusion formula (`detection/fusion.py`): agree = 0.4*rule + 0.6*model; model disagrees = 0.4*rule + 0.6*model's probability
+for that pattern (lower); rules miss but model >= 0.90 = 0.9*model (`model_only`); no model = rule confidence.
+
+## Compare rules vs DeBERTa vs fused (Colab)
+```
+python ml/nlp/evaluate.py --split test
+python ml/nlp/evaluate.py --model ml/models/nlp/deberta --split test
+python ml/nlp/evaluate.py --model ml/models/nlp/deberta --fusion --split test
+python ml/nlp/evaluate.py --compare --split test
+```
