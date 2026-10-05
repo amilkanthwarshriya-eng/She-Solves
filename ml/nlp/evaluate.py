@@ -4,6 +4,8 @@
     python ml/nlp/evaluate.py --split all           # rule baseline on every example
     python ml/nlp/evaluate.py --model ml/models/nlp/deberta     # DeBERTa alone
     python ml/nlp/evaluate.py --model ml/models/nlp/deberta --fusion   # rules + DeBERTa fused
+    python ml/nlp/evaluate.py --model ml/models/nlp/deberta --tune     # pick fusion thresholds on the VAL split
+    python ml/nlp/evaluate.py --model ml/models/nlp/deberta --fusion --model-only-min 0.6 --report-min 0.5
     python ml/nlp/evaluate.py --compare                          # table of the saved results
 """
 import argparse
@@ -56,12 +58,50 @@ def predict_model(texts: List[str], model_dir: str) -> List[str]:
     return [r["pattern"] for r in clf.predict(texts)]
 
 
-def predict_fused(texts: List[str], model_dir: str) -> List[str]:
+def predict_fused(texts: List[str], model_dir: str, model_only_min=None, report_min=None) -> List[str]:
     sys.path.insert(0, HERE)
     from inference import DebertaClassifier
     from app.nlp.inference import classify_text
     results = DebertaClassifier(model_dir).predict(texts)
-    return [classify_text(t, model_result=r)["pattern"] for t, r in zip(texts, results)]
+    return [classify_text(t, model_result=r, model_only_min_conf=model_only_min,
+                          report_min_conf=report_min)["pattern"] for t, r in zip(texts, results)]
+
+
+def tune(model_dir: str, split: str = "val") -> None:
+    """Try fusion thresholds on the VALIDATION split (never tune on test)."""
+    sys.path.insert(0, HERE)
+    from inference import DebertaClassifier
+    from app.nlp.inference import classify_text
+    texts, y_true = load(split)
+    results = DebertaClassifier(model_dir).predict(texts)
+
+    tops = sorted(r["confidence"] for r in results)
+    print(f"\nDeBERTa top-class confidence on '{split}' ({len(texts)} samples): "
+          f"min {tops[0]:.2f}  median {tops[len(tops) // 2]:.2f}  max {tops[-1]:.2f}")
+    flagged = sorted(r["confidence"] for r in results if r["pattern"] != "NONE")
+    if flagged:
+        print(f"  when it flags a pattern ({len(flagged)}): min {flagged[0]:.2f}  median {flagged[len(flagged) // 2]:.2f}  max {flagged[-1]:.2f}")
+    print(f"  samples with confidence >= 0.90: {sum(1 for c in tops if c >= 0.90)} of {len(tops)}")
+
+    rows = []
+    for mo in (0.5, 0.6, 0.7, 0.8, 0.9):
+        for rp in (0.0, 0.3, 0.4, 0.5, 0.6):
+            preds = [classify_text(t, model_result=r, model_only_min_conf=mo, report_min_conf=rp)["pattern"]
+                     for t, r in zip(texts, results)]
+            m = metrics(y_true, preds)
+            rows.append((m["macro_f1"], m["accuracy"], mo, rp))
+    rows.sort(key=lambda r: (-r[0], -r[1], r[2], r[3]))
+    alone = metrics(y_true, [r["pattern"] for r in results])
+    rules = metrics(y_true, predict_rules(texts))
+    print(f"\nreference on '{split}':  rules macro-F1 {rules['macro_f1']:.3f} | DeBERTa alone macro-F1 {alone['macro_f1']:.3f}")
+    print("\nbest fusion settings (macro-F1, accuracy, model-only-min, report-min):")
+    for f1, acc, mo, rp in rows[:8]:
+        print(f"  {f1:.3f}   {acc:.3f}    {mo:.1f}    {rp:.1f}")
+    f1, acc, mo, rp = rows[0]
+    print(f"\nsuggested:  --model-only-min {mo} --report-min {rp}")
+    print("Small validation sets make this noisy: prefer settings that are in a plateau of good scores, not a single spike.")
+    print("Then run once on test:  python ml/nlp/evaluate.py --model <dir> --fusion "
+          f"--model-only-min {mo} --report-min {rp} --split test")
 
 
 def compare(split: str) -> None:
@@ -83,17 +123,23 @@ def main() -> None:
     ap.add_argument("--model", default=None, help="folder of a fine-tuned DeBERTa model")
     ap.add_argument("--fusion", action="store_true", help="evaluate rules + DeBERTa fused (needs --model)")
     ap.add_argument("--compare", action="store_true", help="print a table of saved results and exit")
+    ap.add_argument("--tune", action="store_true", help="sweep fusion thresholds on the val split (needs --model)")
+    ap.add_argument("--model-only-min", type=float, default=None, help="fusion: min DeBERTa confidence when rules miss")
+    ap.add_argument("--report-min", type=float, default=None, help="fusion: drop rule hits whose fused confidence is below this")
     args = ap.parse_args()
     if args.compare:
         compare(args.split)
         return
-    if args.fusion and not args.model:
-        ap.error("--fusion needs --model")
+    if (args.fusion or args.tune) and not args.model:
+        ap.error("--fusion / --tune need --model")
+    if args.tune:
+        tune(args.model)
+        return
 
     texts, y_true = load(args.split)
     name = "fused" if args.fusion else ("deberta" if args.model else "rules")
     if args.fusion:
-        y_pred = predict_fused(texts, args.model)
+        y_pred = predict_fused(texts, args.model, args.model_only_min, args.report_min)
     elif args.model:
         y_pred = predict_model(texts, args.model)
     else:

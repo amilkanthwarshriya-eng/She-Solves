@@ -13,7 +13,9 @@ from ..detection.rules_config import PATTERN_NONE
 from .preprocessing import segment_text
 
 
-def classify_text(text: str, classifier=None, model_result: Optional[dict] = None) -> Dict[str, Union[str, float]]:
+def classify_text(text: str, classifier=None, model_result: Optional[dict] = None,
+                  model_only_min_conf: Optional[float] = None,
+                  report_min_conf: Optional[float] = None) -> Dict[str, Union[str, float]]:
     """Strongest pattern in `text`, e.g. {"pattern": "CONFIRM_SHAMING", "confidence": 0.96, "source": "rules+model"}.
 
     Pass `classifier` (a DebertaClassifier) or a precomputed `model_result` to use the model.
@@ -34,7 +36,7 @@ def classify_text(text: str, classifier=None, model_result: Optional[dict] = Non
     best = None
     best_pattern = PATTERN_NONE
     for p in patterns:
-        decision = fuse(p, rule_conf.get(p), model_result)
+        decision = fuse(p, rule_conf.get(p), model_result, model_only_min_conf, report_min_conf)
         if decision and (best is None or decision.confidence > best.confidence):
             best, best_pattern = decision, p
     if best is None:

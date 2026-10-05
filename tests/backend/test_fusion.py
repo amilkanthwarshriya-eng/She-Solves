@@ -45,16 +45,25 @@ class TestFuse(unittest.TestCase):
         self.assertEqual(d.confidence, 0.96)          # 0.4*0.95 + 0.6*0.97
         self.assertEqual(d.source, "rules+model")
 
-    def test_disagreement_lowers_confidence_but_keeps_finding(self):
-        d = fuse(FU, 0.95, result(NO, 0.90, **{FU: 0.05}))
-        self.assertEqual(d.confidence, 0.41)          # 0.4*0.95 + 0.6*0.05
+    def test_mild_disagreement_lowers_confidence_but_keeps_finding(self):
+        d = fuse(FU, 0.95, result(NO, 0.65, **{FU: 0.30}))
+        self.assertEqual(d.confidence, 0.56)          # 0.4*0.95 + 0.6*0.30
         self.assertEqual(d.source, "rules (model disagrees)")
+
+    def test_strong_disagreement_vetoes_the_rule_hit(self):
+        self.assertIsNone(fuse(FU, 0.95, result(NO, 0.90, **{FU: 0.05})))   # 0.41 < 0.50
+        self.assertIsNotNone(fuse(FU, 0.95, result(NO, 0.90, **{FU: 0.05}), report_min_conf=0.0))
+
+    def test_thresholds_are_overridable(self):
+        self.assertIsNotNone(fuse(CS, None, result(CS, 0.80)))                    # passes default 0.70
+        self.assertIsNone(fuse(CS, None, result(CS, 0.80), model_only_min_conf=0.9))
 
     def test_model_only_needs_high_confidence(self):
         d = fuse(CS, None, result(CS, 0.96))
         self.assertEqual((d.confidence, d.source), (0.86, "model_only"))
-        self.assertIsNone(fuse(CS, None, result(CS, 0.80)))
+        self.assertIsNone(fuse(CS, None, result(CS, 0.60)))
         self.assertIsNone(fuse(CS, None, result(NO, 0.99)))
+        self.assertIsNotNone(fuse(CS, None, result(CS, 0.60), model_only_min_conf=0.5))
 
     def test_confidence_never_exceeds_cap(self):
         self.assertLessEqual(fuse(FU, 0.95, result(FU, 1.0)).confidence, 0.99)
@@ -70,11 +79,17 @@ class TestEngineWithModel(unittest.TestCase):
         self.assertIn("DeBERTa", f["explanation"])
         self.assertEqual(f["severity"], "MEDIUM")
 
-    def test_disagreement_still_reported_with_lower_confidence(self):
-        clf = FakeClassifier({"Only 2 left!": result(NO, 0.90, **{FU: 0.05})})
+    def test_mild_disagreement_still_reported_with_lower_confidence(self):
+        clf = FakeClassifier({"Only 2 left!": result(NO, 0.65, **{FU: 0.30})})
         f = analyze_text("Only 2 left!", classifier=clf)[0]
-        self.assertEqual(f["confidence"], 0.41)
+        self.assertEqual(f["confidence"], 0.56)
         self.assertIn("disagrees", f["explanation"])
+
+    def test_strong_disagreement_removes_rule_false_positive(self):
+        text = "I don't want to save this address."
+        self.assertEqual(len(analyze_text(text, classifier=None)), 1)          # rules alone flag it
+        clf = FakeClassifier({text: result(NO, 0.97, **{CS: 0.02})})
+        self.assertEqual(analyze_text(text, classifier=clf), [])               # model overrules
 
     def test_model_only_finding(self):
         text = "Grab it before it's gone forever"
@@ -87,7 +102,7 @@ class TestEngineWithModel(unittest.TestCase):
 
     def test_uncertain_model_only_not_reported(self):
         text = "Grab it before it's gone forever"
-        self.assertEqual(analyze_text(text, classifier=FakeClassifier({text: result(FU, 0.70)})), [])
+        self.assertEqual(analyze_text(text, classifier=FakeClassifier({text: result(FU, 0.60)})), [])
 
     def test_model_saying_none_adds_nothing(self):
         self.assertEqual(analyze_text("Free delivery available.", classifier=FakeClassifier({})), [])
